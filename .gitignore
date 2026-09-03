@@ -1,0 +1,19 @@
+# Ambientes Virtuais
+venv/
+env/
+.env
+
+# Diretório de Dados (Proteção para não subir os CSVs)
+data/
+data/
+*.csv
+
+# Cache do Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Configurações de SO e IDEs
+.DS_Store
+.vscode/
+.idea/
