@@ -1,13 +1,13 @@
 import numpy as np
-import pandas as pd
+from feature_config import NUMERIC_FEATURES, CATEGORICAL_FEATURES
 
 
 class CustomNaiveBayes:
     def __init__(self):
         self.classes = []
         self.priors = {}
-        self.gaussian_params = {}  # Armazena média e variância de (Tenure, Usage Frequency)
-        self.categorical_params = {}  # Armazena probabilidades de (Gender)
+        self.gaussian_params = {}  # Armazena média e variância de (Support Calls, Total Spend)
+        self.categorical_params = {}  # Armazena probabilidades de (Contract Length)
 
     def fit(self, X_train, y_train):
         """
@@ -16,8 +16,8 @@ class CustomNaiveBayes:
         self.classes = np.unique(y_train)
         n_total = len(y_train)
 
-        cont_features = ['Tenure', 'Usage Frequency']
-        cat_features = ['Gender']
+        cont_features = NUMERIC_FEATURES
+        cat_features = CATEGORICAL_FEATURES
 
         for c in self.classes:
             # Filtra os dados apenas para a classe atual (0 ou 1)
@@ -26,7 +26,7 @@ class CustomNaiveBayes:
             # Etapa 4: Calcula a probabilidade a priori P(Y=c)
             self.priors[c] = len(X_c) / n_total
 
-            # Etapa 1 e 2: Parâmetros Gaussianos para variáveis Contínuas
+            # Etapa 1 e 2: Parâmetros Gaussianos para atributos numéricos (aproximação)
             for feature in cont_features:
                 if feature not in self.gaussian_params:
                     self.gaussian_params[feature] = {}
@@ -69,8 +69,8 @@ class CustomNaiveBayes:
         no domínio logarítmico para evitar underflow.
         """
         predictions = []
-        cont_features = ['Tenure', 'Usage Frequency']
-        cat_features = ['Gender']
+        cont_features = NUMERIC_FEATURES
+        cat_features = CATEGORICAL_FEATURES
 
         for _, row in X_test.iterrows():
             log_probs = {}

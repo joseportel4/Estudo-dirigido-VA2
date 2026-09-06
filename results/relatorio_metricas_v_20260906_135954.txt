@@ -1,5 +1,8 @@
 --- ETAPA 6: Separação entre Treinamento e Teste ---
 Proporção: 80% Treino | 20% Teste
+Semente aleatória: 42
+Atributos: Support Calls, Total Spend, Contract Length
+Modelagem: Gaussianas nos atributos numéricos; categórica com Laplace (alpha=1) no contrato.
 Tamanho do Treino: 352665 observações
 Tamanho do Teste: 88167 observações
 
@@ -11,11 +14,11 @@ Realizando predições no conjunto de teste...
 --- ETAPA 7: Avaliação e Matriz de Confusão ---
 Matriz de Confusão:
                    | Predito: 0 (Retido) | Predito: 1 (Churn) |
-Real: 0 (Retido)   |        16030        |       22033        |
-Real: 1 (Churn)    |        14029        |       36075        |
+Real: 0 (Retido)   |        36447        |        1616        |
+Real: 1 (Churn)    |        6586         |       43518        |
 
 Métricas de Desempenho:
-Acurácia: 0.5910
-Precisão: 0.6208
-Recall:   0.7200
-F1-Score: 0.6667
+Acurácia: 0.9070
+Precisão: 0.9642
+Recall:   0.8686
+F1-Score: 0.9139

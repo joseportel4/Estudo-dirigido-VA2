@@ -1,182 +1,213 @@
 import os
 import numpy as np
 import pandas as pd
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import seaborn as sns
 from data_processing import load_and_split_data
+from feature_config import NUMERIC_FEATURES, CATEGORICAL_FEATURES
 
-# Configuração visual dos gráficos
 sns.set_theme(style="whitegrid")
-COLORS = {0: '#2ca02c', 1: '#d62728'}  # Verde para Retido (0), Vermelho para Churn (1)
+COLORS = {0: "#2ca02c", 1: "#d62728"}
+CLASS_LABELS = {0: "Retido", 1: "Churn"}
+
+
+def calc_gaussian_log_pdf(x, mu, var):
+    """Log da densidade Normal, com a mesma proteção usada no classificador."""
+    if var == 0:
+        var = 1e-6
+    return -0.5 * np.log(2 * np.pi * var) - ((x - mu) ** 2) / (2 * var)
 
 
 def calc_gaussian_pdf(x, mu, var):
-    """Calcula a densidade de probabilidade (PDF) de uma Normal."""
-    return (1.0 / np.sqrt(2 * np.pi * var)) * np.exp(-((x - mu) ** 2) / (2 * var))
+    return np.exp(calc_gaussian_log_pdf(x, mu, var))
 
 
-def analyze_continuous(X_train, y_train, feature_name, p0, p1, results_dir):
-    """Realiza a análise univariada para características contínuas (Etapa 4)."""
-    print(f"\n--- Analisando {feature_name} ---")
-
-    # Extrai os dados por classe
-    x0 = X_train[y_train == 0][feature_name]
-    x1 = X_train[y_train == 1][feature_name]
-
+def analyze_continuous(X_train, y_train, feature_name, p0, p1, results_dir, log=print):
+    """Analisa atributos numéricos sob a aproximação Gaussiana atual."""
+    log(f"\n--- Analisando {feature_name} ---")
+    x0 = X_train.loc[y_train == 0, feature_name]
+    x1 = X_train.loc[y_train == 1, feature_name]
     mu0, var0 = x0.mean(), x0.var()
     mu1, var1 = x1.mean(), x1.var()
+    log(f"Classe 0 (Retido) - Média: {mu0:.4f}, Variância: {var0:.4f}")
+    log(f"Classe 1 (Churn)  - Média: {mu1:.4f}, Variância: {var1:.4f}")
+    if feature_name == "Support Calls":
+        log("Support Calls é uma contagem discreta; nesta comparação usamos aproximação Gaussiana.")
 
-    print(f"Classe 0 (Retido) - Média: {mu0:.2f}, Variância: {var0:.2f}")
-    print(f"Classe 1 (Churn)  - Média: {mu1:.2f}, Variância: {var1:.2f}")
+    x_min = X_train[feature_name].min()
+    x_max = X_train[feature_name].max()
+    x_grid = np.linspace(x_min, x_max, 1000)
+    log_pdf0 = calc_gaussian_log_pdf(x_grid, mu0, var0)
+    log_pdf1 = calc_gaussian_log_pdf(x_grid, mu1, var1)
+    log_joint0 = log_pdf0 + np.log(p0)
+    log_joint1 = log_pdf1 + np.log(p1)
+    log_evidence = np.logaddexp(log_joint0, log_joint1)
+    post0 = np.exp(log_joint0 - log_evidence)
+    post1 = np.exp(log_joint1 - log_evidence)
 
-    # Cria um eixo x (grid) cobrindo os valores da base
-    x_min, x_max = X_train[feature_name].min(), X_train[feature_name].max()
-    x_grid = np.linspace(x_min, x_max, 500)
+    margin = log_joint1 - log_joint0
+    boundary_idx = np.flatnonzero(np.diff(margin > 0))
+    boundaries = [
+        x_grid[i] - margin[i] * (x_grid[i + 1] - x_grid[i]) / (margin[i + 1] - margin[i])
+        for i in boundary_idx
+    ]
+    log(f"Fronteira(s) Gaussiana(s), no intervalo observado: {np.round(boundaries, 4)}")
+    log(f"Limiar de decisão: Lambda(x) > P(Y=0)/P(Y=1) = {p0 / p1:.4f} -> Churn")
+    for value in np.unique(X_train[feature_name].quantile([0.1, 0.5, 0.9]).to_numpy()):
+        l0 = calc_gaussian_log_pdf(value, mu0, var0) + np.log(p0)
+        l1 = calc_gaussian_log_pdf(value, mu1, var1) + np.log(p1)
+        posterior1 = float(np.exp(l1 - np.logaddexp(l0, l1)))
+        decision = int(l1 > l0)
+        log(f"Exemplo x={value:.2f}: P(Churn|x)={posterior1:.4f} -> {CLASS_LABELS[decision]}")
 
-    # Etapa 2: Verossimilhança p(x|Y=c)
-    pdf0 = calc_gaussian_pdf(x_grid, mu0, var0)
-    pdf1 = calc_gaussian_pdf(x_grid, mu1, var1)
-
-    # Etapa 4: Probabilidade a posteriori P(Y=c|x) = p(x|Y=c)*P(Y=c) / p(x)
-    evidencia = (pdf0 * p0) + (pdf1 * p1)
-    post0 = (pdf0 * p0) / evidencia
-    post1 = (pdf1 * p1) / evidencia
-
-    # Etapa 5: Fronteira de Decisão (onde P(Y=1|x) ultrapassa P(Y=0|x))
-    # Procuramos o ponto no grid onde as curvas a posteriori se cruzam
-    decisions = post1 > post0
-    boundary_idx = np.where(np.diff(decisions))[0]
-
-    boundaries = x_grid[boundary_idx]
-    print(f"Fronteira(s) de Decisão Bayesiana encontrada(s) em: {np.round(boundaries, 2)}")
-
-    # --- GERANDO O GRÁFICO ---
-    fig, axes = plt.subplots(2, 1, figsize=(10, 10), sharex=True)
-
-    # Plot 1: Verossimilhança e Histograma
-    sns.kdeplot(x0, color=COLORS[0], label='Verossimilhança Y=0', ax=axes[0], fill=True, alpha=0.3)
-    sns.kdeplot(x1, color=COLORS[1], label='Verossimilhança Y=1', ax=axes[0], fill=True, alpha=0.3)
-    for b in boundaries:
-        axes[0].axvline(b, color='black', linestyle='--', label=f'Fronteira (x={b:.2f})')
-
-    axes[0].set_title(f'Distribuição Condicional e Fronteira de Decisão: {feature_name}', fontsize=14)
-    axes[0].set_ylabel('Densidade p(x|Y)')
+    fig, axes = plt.subplots(3, 1, figsize=(11, 12), sharex=True)
+    bins = (
+        np.arange(x_min - 0.5, x_max + 1.5, 1)
+        if feature_name == "Support Calls"
+        else np.linspace(x_min, x_max, 36)
+    )
+    for c, values, log_pdf in [(0, x0, log_pdf0), (1, x1, log_pdf1)]:
+        axes[0].hist(values, bins=bins, density=True, color=COLORS[c], alpha=0.25,
+                     label=f"Dados observados: {CLASS_LABELS[c]}")
+        axes[0].plot(x_grid, np.exp(log_pdf), color=COLORS[c], linewidth=2,
+                     label=f"Gaussiana: {CLASS_LABELS[c]}")
+    axes[0].set_title(f"Dados observados e aproximação Gaussiana: {feature_name}")
+    axes[0].set_ylabel("Densidade")
     axes[0].legend()
 
-    # Plot 2: Razão de Verossimilhança (Lambda)
-    # Etapa 3: Lambda(x) = p(x|Y=1) / p(x|Y=0)
-    lambda_x = pdf1 / (pdf0 + 1e-10)  # 1e-10 evita divisão por zero
-    axes[1].plot(x_grid, lambda_x, color='purple', label=r'Razão $\Lambda(x)$')
-    axes[1].axhline(1, color='gray', linestyle=':', label=r'$\Lambda(x) = 1$ (Empate)')
-
-    axes[1].set_title(r'Razão de Verossimilhança $\Lambda(x) = p(x|Y=1) / p(x|Y=0)$', fontsize=12)
-    axes[1].set_xlabel(feature_name)
-    axes[1].set_ylabel(r'$\Lambda(x)$')
-    # Limita o eixo Y para não distorcer o gráfico com valores infinitos
-    axes[1].set_ylim(0, max(3, np.percentile(lambda_x, 95)))
+    axes[1].plot(x_grid, post0, color=COLORS[0], label="P(Retido | x)")
+    axes[1].plot(x_grid, post1, color=COLORS[1], label="P(Churn | x)")
+    axes[1].axhline(0.5, color="gray", linestyle=":", label="Posterior = 0,5")
+    axes[1].set_title("Probabilidades a posteriori, incluindo os priors do treino")
+    axes[1].set_ylabel("Probabilidade")
+    axes[1].set_ylim(-0.03, 1.03)
     axes[1].legend()
 
-    plt.tight_layout()
+    axes[2].semilogy(x_grid, np.exp(log_pdf1 - log_pdf0), color="purple",
+                     label=r"$\Lambda(x) = p(x|Y=1) / p(x|Y=0)$")
+    axes[2].axhline(1, color="gray", linestyle=":", label="Verossimilhanças iguais")
+    axes[2].axhline(p0 / p1, color="black", linestyle="--",
+                   label=f"Limiar Bayesiano: {p0 / p1:.4f}")
+    axes[2].set_title("Razão de verossimilhanças e limiar de decisão")
+    axes[2].set_ylabel(r"$\Lambda(x)$ (escala log)")
+    axes[2].set_xlabel(feature_name)
+    axes[2].legend()
+
+    for ax in axes:
+        for boundary in boundaries:
+            ax.axvline(boundary, color="#555555", linestyle="--", alpha=0.65)
+    if boundaries:
+        fig.suptitle("Fronteira(s): " + ", ".join(f"{b:.2f}" for b in boundaries), fontsize=12)
+    fig.tight_layout()
     plot_path = os.path.join(results_dir, f'analise_{feature_name.replace(" ", "_")}.png')
-    plt.savefig(plot_path)
-    plt.close()
-    print(f"Gráfico salvo em: {plot_path}")
+    fig.savefig(plot_path, dpi=150)
+    plt.close(fig)
+    log(f"Gráfico: {os.path.basename(plot_path)}")
 
 
-def analyze_categorical(X_train, y_train, feature_name, p0, p1, results_dir):
-    """Realiza a análise univariada para características categóricas (Etapa 4)."""
-    print(f"\n--- Analisando {feature_name} ---")
-
-    categories = X_train[feature_name].unique()
-
-    # Contagens com suavização de Laplace (alpha=1)
+def analyze_categorical(X_train, y_train, feature_name, p0, p1, results_dir, log=print):
+    """Distribuição categórica com Laplace e posterior normalizado."""
+    log(f"\n--- Analisando {feature_name} ---")
+    categories = sorted(X_train[feature_name].unique())
     alpha = 1
     total0, total1 = (y_train == 0).sum(), (y_train == 1).sum()
     n_cats = len(categories)
-
-    resultados = []
-
-    for cat in categories:
-        count0 = ((X_train[feature_name] == cat) & (y_train == 0)).sum()
-        count1 = ((X_train[feature_name] == cat) & (y_train == 1)).sum()
-
-        # Probabilidades condicionais (Verossimilhança)
-        p_cat_y0 = (count0 + alpha) / (total0 + alpha * n_cats)
-        p_cat_y1 = (count1 + alpha) / (total1 + alpha * n_cats)
-
-        # Razão de Verossimilhança
-        lambda_cat = p_cat_y1 / p_cat_y0
-
-        # Regra de decisão baseada no posteriori
-        post0 = p_cat_y0 * p0
-        post1 = p_cat_y1 * p1
-        decisao = 1 if post1 > post0 else 0
-
-        resultados.append({
-            'Categoria': cat,
-            'P(x|Y=0)': p_cat_y0,
-            'P(x|Y=1)': p_cat_y1,
-            'Lambda': lambda_cat,
-            'Decisão Bayesiana': decisao
+    results = []
+    for category in categories:
+        count0 = int(((X_train[feature_name] == category) & (y_train == 0)).sum())
+        count1 = int(((X_train[feature_name] == category) & (y_train == 1)).sum())
+        likelihood0 = (count0 + alpha) / (total0 + alpha * n_cats)
+        likelihood1 = (count1 + alpha) / (total1 + alpha * n_cats)
+        joint0, joint1 = likelihood0 * p0, likelihood1 * p1
+        posterior0 = joint0 / (joint0 + joint1)
+        posterior1 = joint1 / (joint0 + joint1)
+        decision = int(joint1 > joint0)
+        ratio = likelihood1 / likelihood0
+        results.append({
+            "Categoria": category, "P(x|Y=0)": likelihood0, "P(x|Y=1)": likelihood1,
+            "P(Y=0|x)": posterior0, "P(Y=1|x)": posterior1,
+            "Lambda": ratio, "Decisao": CLASS_LABELS[decision],
+            "Contagem Retido": count0,
         })
+        log(f"Categoria '{category}': contagens Retido={count0}, Churn={count1}")
+        log(f"  P(x|Y=0)={likelihood0:.8f}; P(x|Y=1)={likelihood1:.8f}; Lambda={ratio:.4f}")
+        log(f"  P(Retido|x)={posterior0:.6f}; P(Churn|x)={posterior1:.6f} -> {CLASS_LABELS[decision]}")
+        if count0 == 0 or count1 == 0:
+            log("  Frequência zero nesta amostra de treino; Laplace evita probabilidade nula.")
+    log("As associações descrevem esta base; não são regras universais sobre contratos.")
 
-        print(f"Categoria '{cat}':")
-        print(f"  P(x|Y=0) = {p_cat_y0:.4f}, P(x|Y=1) = {p_cat_y1:.4f}")
-        print(f"  Razão de Verossimilhança = {lambda_cat:.4f}")
-        print(f"  Decisão Bayesiana -> Y={decisao}")
-
-    # --- GERANDO O GRÁFICO ---
-    df_res = pd.DataFrame(resultados)
-
-    x_axis = np.arange(len(categories))
+    frame = pd.DataFrame(results)
+    positions = np.arange(len(categories))
     width = 0.35
-
-    fig, ax = plt.subplots(figsize=(8, 6))
-    ax.bar(x_axis - width / 2, df_res['P(x|Y=0)'], width, label='Verossimilhança Y=0', color=COLORS[0])
-    ax.bar(x_axis + width / 2, df_res['P(x|Y=1)'], width, label='Verossimilhança Y=1', color=COLORS[1])
-
-    ax.set_ylabel('Probabilidade P(x|Y)')
-    ax.set_title(f'Distribuição Categórica: {feature_name}', fontsize=14)
-    ax.set_xticks(x_axis)
-    ax.set_xticklabels(df_res['Categoria'])
-    ax.legend()
-
-    # Adiciona anotações de Lambda acima das barras com rf-string
-    for i, row in enumerate(resultados):
-        ax.annotate(rf"$\Lambda$ = {row['Lambda']:.2f}\nDecisão: {row['Decisão Bayesiana']}",
-                    xy=(i, max(row['P(x|Y=0)'], row['P(x|Y=1)'])),
-                    xytext=(0, 10), textcoords="offset points",
-                    ha='center', va='bottom', fontsize=10,
-                    bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="gray", alpha=0.8))
-
-    plt.ylim(0, df_res[['P(x|Y=0)', 'P(x|Y=1)']].max().max() * 1.2)
-    plt.tight_layout()
+    fig, axes = plt.subplots(2, 1, figsize=(11, 9))
+    axes[0].bar(positions - width / 2, frame["P(x|Y=0)"], width,
+                color=COLORS[0], label="P(categoria | Retido)")
+    axes[0].bar(positions + width / 2, frame["P(x|Y=1)"], width,
+                color=COLORS[1], label="P(categoria | Churn)")
+    for i, row in enumerate(results):
+        axes[0].annotate(
+            f"Lambda = {row['Lambda']:.2f}\nDecisão: {row['Decisao']}",
+            xy=(i, max(row["P(x|Y=0)"], row["P(x|Y=1)"])),
+            xytext=(0, 8), textcoords="offset points", ha="center", va="bottom",
+            fontsize=10,
+        )
+        if row["Contagem Retido"] == 0:
+            axes[0].text(
+                i, 0.70,
+                "Retido: contagem observada = 0\nprobabilidade suavizada > 0",
+                ha="center", va="bottom", fontsize=9, color=COLORS[0],
+            )
+    axes[0].set_title(f"Verossimilhanças categóricas com Laplace: {feature_name}")
+    axes[0].set_ylabel("Probabilidade condicional")
+    axes[0].set_ylim(0, 1)
+    for c in [0, 1]:
+        bars = axes[1].bar(positions + (-width / 2 if c == 0 else width / 2),
+                           frame[f"P(Y={c}|x)"], width, color=COLORS[c],
+                           label=f"P({CLASS_LABELS[c]} | categoria)")
+        axes[1].bar_label(bars, fmt="%.3f", padding=3)
+    axes[1].axhline(0.5, color="gray", linestyle=":")
+    axes[1].set_title("Probabilidades a posteriori, incluindo os priors do treino")
+    axes[1].set_ylabel("Probabilidade da classe")
+    axes[1].set_ylim(0, 1.2)
+    axes[1].set_xlabel(feature_name)
+    for ax in axes:
+        ax.set_xticks(positions)
+        ax.set_xticklabels(categories)
+        ax.legend(loc="upper right")
+    fig.tight_layout()
     plot_path = os.path.join(results_dir, f'analise_{feature_name.replace(" ", "_")}.png')
-    plt.savefig(plot_path)
-    plt.close()
-    print(f"Gráfico salvo em: {plot_path}")
+    fig.savefig(plot_path, dpi=150)
+    plt.close(fig)
+    log(f"Gráfico: {os.path.basename(plot_path)}")
 
 
 def main():
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = os.path.dirname(current_dir)
-    filepath = os.path.join(project_root, 'data', 'customer_churn_dataset-training-master.csv')
-    results_dir = os.path.join(project_root, 'results')
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    filepath = os.path.join(project_root, "data", "customer_churn_dataset-training-master.csv")
+    results_dir = os.path.join(project_root, "results")
+    os.makedirs(results_dir, exist_ok=True)
+    report = []
 
-    print("Carregando dados para Análise Univariada...")
+    def log(message):
+        print(message)
+        report.append(message)
+
     X_train, _, y_train, _ = load_and_split_data(filepath)
+    p0, p1 = (y_train == 0).mean(), (y_train == 1).mean()
+    log("Análise univariada: " + ", ".join(X_train.columns))
+    log(f"Somente treino: {len(y_train)} observações; divisão 80/20; random_state=42")
+    log(f"Priors: P(Y=0)={p0:.6f}; P(Y=1)={p1:.6f}")
+    for feature in NUMERIC_FEATURES:
+        analyze_continuous(X_train, y_train, feature, p0, p1, results_dir, log)
+    for feature in CATEGORICAL_FEATURES:
+        analyze_categorical(X_train, y_train, feature, p0, p1, results_dir, log)
+    report_path = os.path.join(results_dir, "relatorio_analise_univariada.txt")
+    with open(report_path, "w", encoding="utf-8") as stream:
+        stream.write("\n".join(report) + "\n")
+    print(f"Relatório salvo em: {report_path}")
 
-    # Etapa 4: Calcula as frequências a priori das classes P(Y=0) e P(Y=1)
-    total_samples = len(y_train)
-    p0 = (y_train == 0).sum() / total_samples
-    p1 = (y_train == 1).sum() / total_samples
-    print(f"Probabilidades a priori: P(Y=0) = {p0:.4f}, P(Y=1) = {p1:.4f}")
 
-    # Analisa cada variável isoladamente
-    analyze_continuous(X_train, y_train, 'Tenure', p0, p1, results_dir)
-    analyze_continuous(X_train, y_train, 'Usage Frequency', p0, p1, results_dir)
-    analyze_categorical(X_train, y_train, 'Gender', p0, p1, results_dir)
-
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

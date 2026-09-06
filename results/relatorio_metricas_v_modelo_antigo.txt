@@ -1,0 +1,22 @@
+--- ETAPA 6: Separação entre Treinamento e Teste ---
+Proporção: 80% Treino | 20% Teste
+Tamanho do Treino: 352665 observações
+Tamanho do Teste: 88167 observações
+Atributos: Gender, Tenure, Usage Frequency
+
+--- ETAPA 5: Treinando o classificador Naive Bayes ---
+Parâmetros (Médias, Variâncias e Probabilidades) estimados com sucesso!
+
+Realizando predições no conjunto de teste...
+
+--- ETAPA 7: Avaliação e Matriz de Confusão ---
+Matriz de Confusão:
+                   | Predito: 0 (Retido) | Predito: 1 (Churn) |
+Real: 0 (Retido)   |        16030        |       22033        |
+Real: 1 (Churn)    |        14029        |       36075        |
+
+Métricas de Desempenho:
+Acurácia: 0.5910
+Precisão: 0.6208
+Recall:   0.7200
+F1-Score: 0.6667

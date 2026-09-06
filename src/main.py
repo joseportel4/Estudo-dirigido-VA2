@@ -82,6 +82,9 @@ def main():
     X_train, X_test, y_train, y_test = load_and_split_data(filepath, test_size=0.2, random_state=42)
 
     registrar_log("Proporção: 80% Treino | 20% Teste")
+    registrar_log("Semente aleatória: 42")
+    registrar_log("Atributos: " + ", ".join(X_train.columns))
+    registrar_log("Modelagem: Gaussianas nos atributos numéricos; categórica com Laplace (alpha=1) no contrato.")
     registrar_log(f"Tamanho do Treino: {len(X_train)} observações")
     registrar_log(f"Tamanho do Teste: {len(X_test)} observações\n")
 

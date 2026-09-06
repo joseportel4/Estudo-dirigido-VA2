@@ -1,0 +1,38 @@
+Análise univariada: Support Calls, Total Spend, Contract Length
+Somente treino: 352665 observações; divisão 80/20; random_state=42
+Priors: P(Y=0)=0.433187; P(Y=1)=0.566813
+
+--- Analisando Support Calls ---
+Classe 0 (Retido) - Média: 1.5856, Variância: 1.6647
+Classe 1 (Churn)  - Média: 5.1451, Variância: 9.8776
+Support Calls é uma contagem discreta; nesta comparação usamos aproximação Gaussiana.
+Fronteira(s) Gaussiana(s), no intervalo observado: [3.2257]
+Limiar de decisão: Lambda(x) > P(Y=0)/P(Y=1) = 0.7643 -> Churn
+Exemplo x=0.00: P(Churn|x)=0.2303 -> Retido
+Exemplo x=3.00: P(Churn|x)=0.4370 -> Retido
+Exemplo x=9.00: P(Churn|x)=1.0000 -> Churn
+Gráfico: analise_Support_Calls.png
+
+--- Analisando Total Spend ---
+Classe 0 (Retido) - Média: 749.7357, Variância: 20789.5873
+Classe 1 (Churn)  - Média: 541.2880, Variância: 67650.9402
+Fronteira(s) Gaussiana(s), no intervalo observado: [625.1816]
+Limiar de decisão: Lambda(x) > P(Y=0)/P(Y=1) = 0.7643 -> Churn
+Exemplo x=252.00: P(Churn|x)=0.9934 -> Churn
+Exemplo x=661.00: P(Churn|x)=0.4409 -> Retido
+Exemplo x=931.94: P(Churn|x)=0.3429 -> Retido
+Gráfico: analise_Total_Spend.png
+
+--- Analisando Contract Length ---
+Categoria 'Annual': contagens Retido=76421, Churn=65121
+  P(x|Y=0)=0.50023237; P(x|Y=1)=0.32577615; Lambda=0.6512
+  P(Retido|x)=0.539916; P(Churn|x)=0.460084 -> Retido
+Categoria 'Monthly': contagens Retido=0, Churn=69590
+  P(x|Y=0)=0.00000655; P(x|Y=1)=0.34813255; Lambda=53185.2537
+  P(Retido|x)=0.000014; P(Churn|x)=0.999986 -> Churn
+  Frequência zero nesta amostra de treino; Laplace evita probabilidade nula.
+Categoria 'Quarterly': contagens Retido=76349, Churn=65184
+  P(x|Y=0)=0.49976108; P(x|Y=1)=0.32609131; Lambda=0.6525
+  P(Retido|x)=0.539441; P(Churn|x)=0.460559 -> Retido
+As associações descrevem esta base; não são regras universais sobre contratos.
+Gráfico: analise_Contract_Length.png
